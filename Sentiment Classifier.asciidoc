@@ -1,0 +1,274 @@
+= I built a model that automatically classifies text as either having a
+positive or negative sentiment.
+
+
++*In[76]:*+
+[source, ipython3]
+----
+#I created these classes and functions to keep the data from being messy
+class Sentiment:
+    NEGATIVE = 'NEGATIVE'
+    NEUTRAL = 'NEUTRAL'
+    POSITIVE = 'POSITIVE'
+
+class Review:
+    def __init__(self, text, score):
+        self.text = text #review text
+        self.score = score #review score
+        self.sentiment = self.get_sentiment() #review sentiment: negative, neutral and positive
+        
+    def get_sentiment(self): #we will have 3 sentiments based on the reviews' scores
+        if self.score <= 2:
+            return Sentiment.NEGATIVE
+        elif self.score == 3:
+            return Sentiment.NEUTRAL
+        else: #the score higher than 4
+            return Sentiment.POSITIVE
+        
+import random
+class ReviewContainer: 
+    #functions to make the number of postive and negative sentiments equal
+    #-->improve the predictions for negative sentiments since the postive outnumber the negative too much
+    
+    def __init__(self, reviews):
+        self.reviews = reviews
+        
+    def get_text(self):
+        return [x.text for x in self.reviews]
+    def get_sentiment(self):
+        return [x.sentiment for x in self.reviews]
+    
+    def evenly_distribute(self):
+        negative = list(filter(lambda x: x.sentiment == Sentiment.NEGATIVE, self.reviews))
+        positive = list(filter(lambda x: x.sentiment == Sentiment.POSITIVE, self.reviews))
+        positive_shrunk = positive[:len(negative)] #restrict the number of positive reviews
+        
+        self.reviews = positive_shrunk + negative #we have a new list containing equal positive and negative reviews
+        random.shuffle(self.reviews) #make sure negative and positive reviews are radom
+        
+----
+
+== Load the Data
+
+
++*In[80]:*+
+[source, ipython3]
+----
+# I used amazon reviews as the training data
+import json
+
+file_name = 'D:\Books_small_10000.json'
+
+reviews = [] #create a list
+
+with open(file_name) as f:
+    for line in f:
+        review = json.loads(line)
+        reviews.append(Review(review['reviewText'], review['overall'])) #list contain reviewText and Overall
+
+----
+
+= Train test split
+
+
++*In[81]:*+
+[source, ipython3]
+----
+from sklearn.model_selection import train_test_split
+
+training, test = train_test_split(reviews, test_size = 0.33, random_state = 42)
+
+#I changed to modify with the reviews which contain equal positive and negative sentiment
+
+train_container = ReviewContainer(training)
+test_container = ReviewContainer(test)
+
+----
+
+
++*In[82]:*+
+[source, ipython3]
+----
+
+train_container.evenly_distribute() #use the function to distribute positive and negative reviews equally 
+train_x = train_container.get_text() #text
+train_y = train_container.get_sentiment() #sentiment
+
+test_container.evenly_distribute() 
+test_x = test_container.get_text()
+test_y = test_container.get_sentiment()
+
+#train_y.count(Sentiment.POSITIVE)
+#train_y.count(Sentiment.NEGATIVE)
+
+----
+
+= Numerical Vectors
+
+
++*In[83]:*+
+[source, ipython3]
+----
+#convert text into numerical vectors for the following classification and prediction
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+#The TfidfVectorizer helps me choose the key words that define a either good or bad book, instead of scanning the whole text
+
+vectorizer = TfidfVectorizer()
+
+train_x_vectors = vectorizer.fit_transform(train_x)
+test_x_vectors = vectorizer.transform(test_x)
+
+train_x_vectors.toarray()
+
+----
+
+
++*Out[83]:*+
+----array([[0., 0., 0., ..., 0., 0., 0.],
+       [0., 0., 0., ..., 0., 0., 0.],
+       [0., 0., 0., ..., 0., 0., 0.],
+       ...,
+       [0., 0., 0., ..., 0., 0., 0.],
+       [0., 0., 0., ..., 0., 0., 0.],
+       [0., 0., 0., ..., 0., 0., 0.]])----
+
+== Model Selection & Classification
+
+== SVC
+
+
++*In[91]:*+
+[source, ipython3]
+----
+
+from sklearn.svm import SVC
+
+clf_svm = SVC(kernel = 'linear', gamma='auto')
+clf_svm.fit(train_x_vectors, train_y)
+
+clf_svm.predict(test_x_vectors[0]) #predict the first review
+
+----
+
+
++*Out[91]:*+
+----array(['POSITIVE'], dtype='<U8')----
+
+= Decision Tree
+
+
++*In[92]:*+
+[source, ipython3]
+----
+
+from sklearn.tree import DecisionTreeClassifier
+
+clf_tree = DecisionTreeClassifier()
+clf_tree.fit(train_x_vectors, train_y)
+
+clf_tree.predict(test_x_vectors[0]) #predict the first review
+
+----
+
+
++*Out[92]:*+
+----array(['POSITIVE'], dtype='<U8')----
+
+= Log Regression
+
+
++*In[96]:*+
+[source, ipython3]
+----
+
+from sklearn.linear_model import LogisticRegression
+
+clf_log = LogisticRegression()
+
+clf_log.fit(train_x_vectors, train_y)
+clf_log.predict(test_x_vectors[0]) #predict the first review
+
+----
+
+
++*Out[96]:*+
+----array(['POSITIVE'], dtype='<U8')----
+
+= Mean Accuracy
+
+
++*In[98]:*+
+[source, ipython3]
+----
+# To see how much my predictions fit the real sentiment in the database
+
+print(clf_log.score(test_x_vectors, test_y))
+print(clf_tree.score(test_x_vectors, test_y))
+print(clf_svm.score(test_x_vectors, test_y))
+----
+
+
++*Out[98]:*+
+----
+0.8052884615384616
+0.6706730769230769
+0.8076923076923077
+----
+
+= F1 Score
+
+
++*In[102]:*+
+[source, ipython3]
+----
+#I used F1 Score to measure the accuracy of my prediction 
+
+#Before adding "evenly_distribute" functions, 
+#I had a very low score in predicting the negative sentiment 
+#since the positive sentiments outnumbered the negative ones too much
+
+from sklearn.metrics import f1_score
+
+print(f1_score(test_y, clf_log.predict(test_x_vectors), average=None, labels =[Sentiment.POSITIVE,Sentiment.NEGATIVE]))
+print(f1_score(test_y, clf_tree.predict(test_x_vectors), average=None, labels =[Sentiment.POSITIVE,Sentiment.NEGATIVE]))
+print(f1_score(test_y, clf_svm.predict(test_x_vectors), average=None, labels =[Sentiment.POSITIVE,Sentiment.NEGATIVE]))
+
+#I will choose the log regression and svc models since they have higher accuracy rates
+----
+
+
++*Out[102]:*+
+----
+[0.80291971 0.80760095]
+[0.66339066 0.67764706]
+[0.80582524 0.80952381]
+----
+
+= Here is the fun part!!!! Let’s see our model in action!!!
+
+
++*In[106]:*+
+[source, ipython3]
+----
+test_set = ['great', 'bad book do not buy', 'horrible waste of time', 'very fun', 'brilliant']
+new_test = vectorizer.transform(test_set) #transfer the text above into numerical vectors
+
+print(clf_log.predict(new_test))
+print(clf_svm.predict(new_test))
+
+----
+
+
++*Out[106]:*+
+----
+['POSITIVE' 'NEGATIVE' 'NEGATIVE' 'POSITIVE' 'POSITIVE']
+['POSITIVE' 'NEGATIVE' 'NEGATIVE' 'POSITIVE' 'POSITIVE']
+----
+
+Conclusions & Discussion: - The predictions overall are good by using
+Log Regression and SVC models. - Outcomes are improved, mostly in the
+negative reviews predictions, increasing to ~0.79 (instead of ~0.29)
+after I implemented the ``evenly_distribute'' function and imported
+``TfidfVectorizer''. - The key lesson here is that we have to make sure
+the distribution of each catagory (negative and positive sentiments in
+this case) is as equal as possible.
